@@ -1,0 +1,41 @@
+===================================================================
+CHAPTER 4: CELLULAR ENERGY & PHOTOSYNTHESIS
+High School Biology Study Guide
+===================================================================
+
+1. OVERVIEW OF PHOTOSYNTHESIS
+Photosynthesis is the fundamental biological process by which autotrophic organisms, 
+including plants, algae, and cyanobacteria, convert light energy into chemical energy stored in glucose. 
+The general chemical equation for photosynthesis is:
+6 CO2 + 6 H2O + Light Energy ---> C6H12O6 + 6 O2
+
+Photosynthesis takes place within specialized double-membrane organelles called chloroplasts. 
+Chloroplasts contain thylakoid membranes stacked into grana, surrounded by a fluid region called the stroma.
+
+2. LIGHT-DEPENDENT REACTIONS
+The light-dependent reactions occur within the thylakoid membrane. Chlorophyll a and chlorophyll b 
+absorb photons primarily in the blue and red wavelengths while reflecting green light. 
+When light strikes Photosystem II, water molecules are split (photolysis), releasing oxygen gas (O2) 
+as a byproduct and producing hydrogen ions and high-energy electrons. 
+
+These electrons travel along the electron transport chain (ETC) to Photosystem I, generating ATP via 
+chemiosmosis and reducing NADP+ to NADPH.
+
+3. THE CALVIN CYCLE (LIGHT-INDEPENDENT REACTIONS)
+The Calvin Cycle takes place in the stroma of the chloroplast. It does not require direct sunlight 
+but relies on the ATP and NADPH produced by the light-dependent reactions. 
+The enzyme RuBisCO catalyzes carbon fixation, attaching carbon dioxide (CO2) to ribulose 1,5-bisphosphate (RuBP). 
+Through a series of enzymatic reductions, G3P (glyceraldehyde 3-phosphate) is synthesized, which is subsequently 
+used to form glucose and other essential carbohydrates.
+
+4. FACTORS AFFECTING PHOTOSYNTHETIC RATE
+The rate of photosynthesis is influenced by three main environmental factors:
+a) Light Intensity: As light intensity increases, the photosynthetic rate rises until reaching a saturation point.
+b) Carbon Dioxide Concentration: Higher CO2 availability speeds up carbon fixation in the Calvin Cycle.
+c) Temperature: Enzymes like RuBisCO function optimally between 20°C and 35°C. Excessive heat denatures enzymes.
+
+5. GLOSSARY & KEY TERMS
+- Chlorophyll: The primary green pigment responsible for absorbing light energy.
+- Stroma: Fluid-filled space surrounding thylakoids inside the chloroplast.
+- Photolysis: The splitting of water molecules using light energy.
+- RuBisCO: The enzyme responsible for fixing carbon dioxide in the Calvin Cycle.
