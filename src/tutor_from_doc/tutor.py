@@ -29,8 +29,6 @@ class GroundedLocalLLM(BaseLLM):
     Refuses to answer if the context does not contain relevant facts.
     """
     def generate(self, prompt: str, system_prompt: str = "") -> str:
-        # Prompt contains context and user query
-        # If context is empty or missing relevant info, respond with standard grounded refusal
         if "CONTEXT:" in prompt:
             context_section = prompt.split("CONTEXT:")[1].split("QUESTION:")[0].strip()
             query_section = prompt.split("QUESTION:")[1].strip() if "QUESTION:" in prompt else ""
@@ -43,7 +41,8 @@ class GroundedLocalLLM(BaseLLM):
 
         # Extract sentences from context matching query terms
         sentences = re.split(r'(?<=[.!?])\s+', context_section)
-        query_words = set(re.findall(r'\w+', query_section.lower())) - {"what", "is", "the", "a", "an", "how", "why", "can", "you", "tell", "me", "about", "in", "on", "of"}
+        stopwords = {"what", "is", "the", "a", "an", "how", "why", "can", "you", "tell", "me", "about", "in", "on", "of", "who", "was", "where"}
+        query_words = set(re.findall(r'\w+', query_section.lower())) - stopwords
 
         matched_sentences = []
         for stmt in sentences:
@@ -59,12 +58,9 @@ class GroundedLocalLLM(BaseLLM):
 
         if matched_sentences:
             best_sentences = [s[0] for s in matched_sentences[:4]]
-            response = "Based on the document content:\n\n" + "\n\n".join(f"• {s}" for s in best_sentences)
-            return response
+            return "Based on the document content:\n\n" + "\n\n".join(f"• {s}" for s in best_sentences)
         else:
-            # Fallback to presenting the retrieved context summary
-            preview = context_section[:400] + "..." if len(context_section) > 400 else context_section
-            return f"Based on the document:\n\n{preview}"
+            return "I cannot find this information in the uploaded document. Please ask a question related to the document content."
 
 
 class OpenAILLM(BaseLLM):
@@ -163,8 +159,8 @@ class TutorEngine:
         # Retrieve top relevant document chunks
         results = self.indexer.search(query=question, top_k=top_k)
 
-        # Filter out chunks with extremely low similarity if needed
-        relevant_chunks = [chunk for chunk, score in results if score > 0.05]
+        # Filter out chunks with low similarity
+        relevant_chunks = [chunk for chunk, score in results if score >= 0.15]
 
         if not relevant_chunks:
             return {
@@ -192,6 +188,13 @@ class TutorEngine:
         )
 
         answer = self.llm.generate(prompt=user_prompt, system_prompt=system_prompt)
+
+        if "cannot find this information" in answer.lower():
+            return {
+                "answer": "I cannot find this information in the uploaded document. Please ask a question related to the document content.",
+                "citations": [],
+                "grounded": True
+            }
 
         # Build citations list
         citations = []
@@ -225,14 +228,11 @@ class TutorEngine:
 
         questions = []
         for idx, chunk in enumerate(selected_chunks[:num_questions], start=1):
-            # Extract main statement from chunk to create a practice question
             sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', chunk.text) if len(s.strip()) > 20]
             if not sentences:
                 continue
 
             target_stmt = sentences[0]
-            
-            # Simple, effective question generator from document statements
             question_text = f"Based on page {chunk.page_number}, explain the key concept in: '{target_stmt[:120]}...'"
             
             questions.append({
