@@ -1,9 +1,8 @@
 """
 indexer.py — Embedding Generation and Vector Search Storage
 
-Provides embedding generation and local vector search.
-Uses sentence-transformers if available, with a fast zero-dependency TF-IDF/Cosine vector store
-as fallback so the library works out-of-the-box in low-resource environments without forcing heavy ML installs.
+Provides embedding generation and local vector search capabilities using either
+SentenceTransformers or a zero-dependency TF-IDF fallback vector store.
 """
 
 import os
@@ -13,7 +12,6 @@ import re
 from typing import List, Dict, Any, Tuple, Optional
 from tutor_from_doc.loader import DocumentChunk
 
-# Try optional imports
 try:
     import numpy as np
 except ImportError:
@@ -37,10 +35,7 @@ class BaseEmbedder:
 
 
 class FastTFIDFEmbedder(BaseEmbedder):
-    """
-    Lightweight zero-dependency TF-IDF / N-gram term frequency embedder.
-    Requires no GPU, zero neural network downloads, and runs instantly on any device.
-    """
+    """Zero-dependency TF-IDF term frequency embedder for offline environments."""
     def __init__(self, vocab_size: int = 5000):
         self.vocab_size = vocab_size
         self.vocab: Dict[str, int] = {}
@@ -52,15 +47,12 @@ class FastTFIDFEmbedder(BaseEmbedder):
         return [w for w in words if len(w) > 1 and not w.isdigit()]
 
     def fit_and_embed(self, texts: List[str]) -> List[List[float]]:
-        """Incrementally update vocabulary and embed corpus texts."""
         word_counts: Dict[str, int] = {}
         for text in texts:
             tokens = set(self._tokenize(text))
             for t in tokens:
                 word_counts[t] = word_counts.get(t, 0) + 1
 
-        # Preserve existing vocab and add new tokens up to vocab_size limit
-        current_len = len(self.vocab)
         sorted_new = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
         for word, _ in sorted_new:
             if word not in self.vocab:
@@ -84,7 +76,6 @@ class FastTFIDFEmbedder(BaseEmbedder):
                 if t in self.vocab:
                     vec[self.vocab[t]] += 1.0
 
-            # L2 normalization
             sq_sum = sum(v * v for v in vec)
             if sq_sum > 0:
                 norm = math.sqrt(sq_sum)
@@ -111,17 +102,14 @@ class SentenceTransformerEmbedder(BaseEmbedder):
 
 
 class VectorIndexer:
-    """
-    Local Vector Store for indexing document chunks and running top-K similarity search.
-    Supports both neural embeddings and lightweight TF-IDF fallback vectors.
-    """
+    """Local vector store for indexing document chunks and running top-K similarity search."""
     def __init__(self, embedder: Optional[BaseEmbedder] = None):
         self.embedder = embedder or FastTFIDFEmbedder()
         self.chunks: List[DocumentChunk] = []
         self.embeddings: List[List[float]] = []
 
     def index_chunks(self, chunks: List[DocumentChunk]):
-        """Add and index document chunks."""
+        """Index new document chunks and generate vector embeddings."""
         if not chunks:
             return
 
@@ -136,7 +124,6 @@ class VectorIndexer:
         self.embeddings.extend(new_embeddings)
 
     def _cosine_similarity(self, vec_a: List[float], vec_b: List[float]) -> float:
-        """Compute cosine similarity between two float vectors."""
         min_len = min(len(vec_a), len(vec_b))
         if min_len == 0:
             return 0.0
@@ -150,10 +137,7 @@ class VectorIndexer:
         return dot / (norm_a * norm_b)
 
     def search(self, query: str, top_k: int = 3) -> List[Tuple[DocumentChunk, float]]:
-        """
-        Search for top-K most relevant chunks for a given text query.
-        Returns list of (DocumentChunk, similarity_score) sorted by score descending.
-        """
+        """Search for top-K most relevant chunks for a given query text."""
         k = max(1, top_k)
         if not self.chunks or not self.embeddings or not query or not query.strip():
             return []
@@ -173,7 +157,7 @@ class VectorIndexer:
         return scored_results[:k]
 
     def save(self, file_path: str):
-        """Save vector store state to a local JSON file."""
+        """Save index state to a local JSON file."""
         data = {
             "chunks": [chunk.to_dict() for chunk in self.chunks],
             "embeddings": self.embeddings,
@@ -186,7 +170,7 @@ class VectorIndexer:
             json.dump(data, f, indent=2)
 
     def load(self, file_path: str):
-        """Load vector store state from a local JSON file."""
+        """Load index state from a local JSON file."""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Vector store file not found: {file_path}")
 

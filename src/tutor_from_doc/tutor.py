@@ -1,11 +1,8 @@
 """
 tutor.py — Core RAG Tutor Engine and Grounded Question Answering
 
-Implements the AI tutor logic:
-1. Retrieval of grounded context chunks from document index.
-2. Grounded Answer Synthesis (strict adherence to document content only — zero hallucination).
-3. Practice Quiz Generator (generates grounded practice questions + answer keys).
-4. Pluggable LLM abstractions (MockLLM for zero-cost offline, OpenAILLM, OllamaLLM for custom endpoints).
+Implements RAG retrieval, grounded answer synthesis with 0% hallucination guardrails,
+practice quiz generation, and pluggable LLM interfaces (Local, OpenAI, Ollama).
 """
 
 import re
@@ -24,9 +21,8 @@ class BaseLLM:
 
 class GroundedLocalLLM(BaseLLM):
     """
-    Default zero-cost, offline-friendly LLM engine.
-    Synthesizes clean, grounded responses directly from retrieved chunks without external API dependencies.
-    Refuses to answer if the context does not contain relevant facts.
+    Default zero-cost, offline-friendly LLM synthesis engine.
+    Synthesizes grounded responses directly from retrieved chunks without external API dependencies.
     """
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         if "CONTEXT:" in prompt:
@@ -40,10 +36,7 @@ class GroundedLocalLLM(BaseLLM):
         if not context_section or "NO RELEVANT CONTEXT" in context_section:
             return "I cannot find this information in the uploaded document. Please ask a question related to the document content."
 
-        # Strip metadata header lines like [Source: ..., Page ...]
         clean_context = re.sub(r'\[Source:\s*[^\]]+\]', '', context_section).strip()
-
-        # Sentence tokenizer aware of common abbreviations
         raw_sentences = re.split(r'(?<!\be\.g)(?<!\bi\.e)(?<!\bDr)(?<!\bMr)(?<!\bMrs)(?<!\bFig)(?<=[.!?])\s+', clean_context)
         sentences = [s.strip() for s in raw_sentences if len(s.strip()) > 5]
 
@@ -73,7 +66,7 @@ class GroundedLocalLLM(BaseLLM):
 
 
 class OpenAILLM(BaseLLM):
-    """OpenAI API wrapper (requires `api_key`)."""
+    """OpenAI API client adapter."""
     def __init__(self, api_key: str, model: str = "gpt-3.5-turbo", timeout: int = 30):
         self.api_key = api_key
         self.model = model
@@ -102,7 +95,7 @@ class OpenAILLM(BaseLLM):
 
 
 class OllamaLLM(BaseLLM):
-    """Local Ollama LLM wrapper (e.g., llama3, mistral, phi3)."""
+    """Local Ollama HTTP client adapter."""
     def __init__(self, host: str = "http://localhost:11434", model: str = "llama3", timeout: int = 30):
         self.host = host.rstrip("/")
         self.model = model
@@ -140,7 +133,7 @@ class TutorEngine:
         self.is_indexed = False
 
     def ingest_document(self, file_path: str) -> Dict[str, Any]:
-        """Ingest a document file (PDF, TXT, MD), create chunks, and build vector search index."""
+        """Ingest document file (PDF, TXT, MD), create chunks, and build vector search index."""
         chunks = self.loader.load_and_chunk(file_path)
         if not chunks:
             raise ValueError(f"No valid text content could be extracted from file: {file_path}")
@@ -156,10 +149,7 @@ class TutorEngine:
         }
 
     def ask(self, question: str, top_k: int = 3) -> Dict[str, Any]:
-        """
-        Ask a question grounded ONLY in the uploaded document content.
-        Retrieves top-K relevant chunks, feeds context to LLM, and formats citations.
-        """
+        """Ask a question grounded strictly in document content, returning answer and citations."""
         if not question or not question.strip():
             return {
                 "answer": "Please provide a non-empty question.",
@@ -228,10 +218,7 @@ class TutorEngine:
         }
 
     def quiz(self, num_questions: int = 3) -> Dict[str, Any]:
-        """
-        Generate practice quiz questions directly from document content for self-testing.
-        Returns questions, context snippets, and page numbers.
-        """
+        """Generate practice quiz questions directly from document content for self-testing."""
         if not self.is_indexed or not self.indexer.chunks:
             return {
                 "error": "No document ingested. Upload a document to generate a quiz.",

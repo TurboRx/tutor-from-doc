@@ -2,7 +2,7 @@
 loader.py — PDF/Document Ingestion and Chunking
 
 Provides utilities for reading PDF, text, and markdown files, extracting text content,
-and splitting documents into overlapping chunks with precise metadata (source file, page numbers).
+and splitting documents into overlapping chunks with precise metadata.
 """
 
 import os
@@ -40,9 +40,7 @@ class DocumentLoader:
         """Clean control characters and normalize excessive whitespace."""
         if not text:
             return ""
-        # Strip non-printable control characters (except newline/tab)
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
-        # Normalize multiple blank spaces while preserving line breaks
         text = re.sub(r'[ \t]+', ' ', text)
         text = re.sub(r'\n{3,}', '\n\n', text)
         return text.strip()
@@ -73,7 +71,6 @@ class DocumentLoader:
                             "text": cleaned
                         })
                 except Exception:
-                    # Skip corrupt page gracefully
                     continue
         except Exception as e:
             raise ValueError(f"Failed to read PDF file '{file_path}': {str(e)}")
@@ -107,10 +104,7 @@ class DocumentLoader:
         chunk_size: Optional[int] = None,
         chunk_overlap: Optional[int] = None
     ) -> List[DocumentChunk]:
-        """
-        Split a block of text into sliding window chunks with overlap.
-        Preserves paragraph and sentence boundaries where possible.
-        """
+        """Split text into sliding window chunks with overlap, preserving sentence boundaries."""
         size = max(50, chunk_size or self.default_chunk_size)
         overlap = max(0, min(chunk_overlap if chunk_overlap is not None else self.default_chunk_overlap, size - 10))
 
