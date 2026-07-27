@@ -30,7 +30,8 @@ class GroundedLocalLLM(BaseLLM):
     """
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         if "CONTEXT:" in prompt:
-            context_section = prompt.split("CONTEXT:")[1].split("QUESTION:")[0].strip()
+            parts = prompt.split("CONTEXT:")
+            context_section = parts[1].split("QUESTION:")[0].strip() if len(parts) > 1 else ""
             query_section = prompt.split("QUESTION:")[1].strip() if "QUESTION:" in prompt else ""
         else:
             context_section = prompt
@@ -39,9 +40,17 @@ class GroundedLocalLLM(BaseLLM):
         if not context_section or "NO RELEVANT CONTEXT" in context_section:
             return "I cannot find this information in the uploaded document. Please ask a question related to the document content."
 
-        # Extract sentences from context matching query terms
-        sentences = re.split(r'(?<=[.!?])\s+', context_section)
-        stopwords = {"what", "is", "the", "a", "an", "how", "why", "can", "you", "tell", "me", "about", "in", "on", "of", "who", "was", "where"}
+        # Strip metadata header lines like [Source: ..., Page ...]
+        clean_context = re.sub(r'\[Source:\s*[^\]]+\]', '', context_section).strip()
+
+        # Sentence tokenizer aware of common abbreviations
+        raw_sentences = re.split(r'(?<!\be\.g)(?<!\bi\.e)(?<!\bDr)(?<!\bMr)(?<!\bMrs)(?<!\bFig)(?<=[.!?])\s+', clean_context)
+        sentences = [s.strip() for s in raw_sentences if len(s.strip()) > 5]
+
+        stopwords = {
+            "what", "is", "the", "a", "an", "how", "why", "can", "you", "tell", "me",
+            "about", "in", "on", "of", "who", "was", "where", "which", "are", "do", "does", "did", "for", "with"
+        }
         query_words = set(re.findall(r'\w+', query_section.lower())) - stopwords
 
         matched_sentences = []
@@ -59,15 +68,16 @@ class GroundedLocalLLM(BaseLLM):
         if matched_sentences:
             best_sentences = [s[0] for s in matched_sentences[:4]]
             return "Based on the document content:\n\n" + "\n\n".join(f"• {s}" for s in best_sentences)
-        else:
-            return "I cannot find this information in the uploaded document. Please ask a question related to the document content."
+
+        return "I cannot find this information in the uploaded document. Please ask a question related to the document content."
 
 
 class OpenAILLM(BaseLLM):
     """OpenAI API wrapper (requires `api_key`)."""
-    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo"):
+    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo", timeout: int = 30):
         self.api_key = api_key
         self.model = model
+        self.timeout = timeout
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         url = "https://api.openai.com/v1/chat/completions"
@@ -84,7 +94,7 @@ class OpenAILLM(BaseLLM):
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
 
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 res_body = json.loads(response.read().decode("utf-8"))
                 return res_body["choices"][0]["message"]["content"].strip()
         except Exception as e:
@@ -93,9 +103,10 @@ class OpenAILLM(BaseLLM):
 
 class OllamaLLM(BaseLLM):
     """Local Ollama LLM wrapper (e.g., llama3, mistral, phi3)."""
-    def __init__(self, host: str = "http://localhost:11434", model: str = "llama3"):
+    def __init__(self, host: str = "http://localhost:11434", model: str = "llama3", timeout: int = 30):
         self.host = host.rstrip("/")
         self.model = model
+        self.timeout = timeout
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         url = f"{self.host}/api/generate"
@@ -105,7 +116,7 @@ class OllamaLLM(BaseLLM):
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
 
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 res_body = json.loads(response.read().decode("utf-8"))
                 return res_body.get("response", "").strip()
         except Exception as e:
@@ -132,7 +143,7 @@ class TutorEngine:
         """Ingest a document file (PDF, TXT, MD), create chunks, and build vector search index."""
         chunks = self.loader.load_and_chunk(file_path)
         if not chunks:
-            raise ValueError(f"No text content could be extracted from file: {file_path}")
+            raise ValueError(f"No valid text content could be extracted from file: {file_path}")
 
         self.indexer.index_chunks(chunks)
         self.is_indexed = True
@@ -149,6 +160,13 @@ class TutorEngine:
         Ask a question grounded ONLY in the uploaded document content.
         Retrieves top-K relevant chunks, feeds context to LLM, and formats citations.
         """
+        if not question or not question.strip():
+            return {
+                "answer": "Please provide a non-empty question.",
+                "citations": [],
+                "grounded": False
+            }
+
         if not self.is_indexed or not self.indexer.chunks:
             return {
                 "answer": "No document has been ingested yet. Please upload a document first.",
@@ -156,11 +174,10 @@ class TutorEngine:
                 "grounded": False
             }
 
-        # Retrieve top relevant document chunks
-        results = self.indexer.search(query=question, top_k=top_k)
+        k = max(1, top_k)
+        results = self.indexer.search(query=question, top_k=k)
 
-        # Filter out chunks with low similarity
-        relevant_chunks = [chunk for chunk, score in results if score >= 0.15]
+        relevant_chunks = [chunk for chunk, score in results if score >= 0.08]
 
         if not relevant_chunks:
             return {
@@ -169,7 +186,6 @@ class TutorEngine:
                 "grounded": True
             }
 
-        # Build grounded RAG prompt
         context_str = "\n\n".join(
             f"[Source: {c.source_name}, Page {c.page_number}]\n{c.text}" for c in relevant_chunks
         )
@@ -196,7 +212,6 @@ class TutorEngine:
                 "grounded": True
             }
 
-        # Build citations list
         citations = []
         for chunk, score in results[:len(relevant_chunks)]:
             citations.append({
@@ -223,24 +238,35 @@ class TutorEngine:
                 "questions": []
             }
 
+        target_count = max(1, num_questions)
         chunks = self.indexer.chunks
-        selected_chunks = chunks[:min(num_questions * 2, len(chunks))]
-
         questions = []
-        for idx, chunk in enumerate(selected_chunks[:num_questions], start=1):
-            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', chunk.text) if len(s.strip()) > 20]
+        seen_questions = set()
+
+        for chunk in chunks:
+            if len(questions) >= target_count:
+                break
+
+            sentences = [
+                s.strip() for s in re.split(r'(?<=[.!?])\s+', chunk.text)
+                if len(s.strip()) > 30 and not s.strip().startswith("=") and not s.strip().startswith("#")
+            ]
+            
             if not sentences:
                 continue
 
             target_stmt = sentences[0]
-            question_text = f"Based on page {chunk.page_number}, explain the key concept in: '{target_stmt[:120]}...'"
+            clean_stmt = re.sub(r'^[0-9\.\-\s]+', '', target_stmt)
+            question_text = f"Based on page {chunk.page_number}, explain the key concept: '{clean_stmt[:120]}...'"
             
-            questions.append({
-                "id": idx,
-                "question": question_text,
-                "page_reference": chunk.page_number,
-                "source_text_hint": chunk.text[:250] + "..."
-            })
+            if question_text not in seen_questions:
+                seen_questions.add(question_text)
+                questions.append({
+                    "id": len(questions) + 1,
+                    "question": question_text,
+                    "page_reference": chunk.page_number,
+                    "source_text_hint": chunk.text[:250] + "..."
+                })
 
         return {
             "total_questions": len(questions),

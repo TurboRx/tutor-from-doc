@@ -46,20 +46,28 @@ class FastTFIDFEmbedder(BaseEmbedder):
         self.vocab: Dict[str, int] = {}
 
     def _tokenize(self, text: str) -> List[str]:
+        if not text:
+            return []
         words = re.findall(r'\w+', text.lower())
-        return [w for w in words if len(w) > 2]
+        return [w for w in words if len(w) > 1 and not w.isdigit()]
 
     def fit_and_embed(self, texts: List[str]) -> List[List[float]]:
-        # Build vocabulary from corpus
+        """Incrementally update vocabulary and embed corpus texts."""
         word_counts: Dict[str, int] = {}
         for text in texts:
             tokens = set(self._tokenize(text))
             for t in tokens:
                 word_counts[t] = word_counts.get(t, 0) + 1
 
-        # Sort top vocabulary
-        sorted_vocab = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)[:self.vocab_size]
-        self.vocab = {word: idx for idx, (word, _) in enumerate(sorted_vocab)}
+        # Preserve existing vocab and add new tokens up to vocab_size limit
+        current_len = len(self.vocab)
+        sorted_new = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+        for word, _ in sorted_new:
+            if word not in self.vocab:
+                if len(self.vocab) < self.vocab_size:
+                    self.vocab[word] = len(self.vocab)
+                else:
+                    break
 
         return self.embed_texts(texts)
 
@@ -96,6 +104,8 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         self.model = SentenceTransformer(model_name)
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
         embeddings = self.model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
         return embeddings.tolist()
 
@@ -117,7 +127,6 @@ class VectorIndexer:
 
         texts = [chunk.text for chunk in chunks]
 
-        # If using FastTFIDFEmbedder, fit vocabulary first
         if isinstance(self.embedder, FastTFIDFEmbedder):
             new_embeddings = self.embedder.fit_and_embed(texts)
         else:
@@ -145,10 +154,14 @@ class VectorIndexer:
         Search for top-K most relevant chunks for a given text query.
         Returns list of (DocumentChunk, similarity_score) sorted by score descending.
         """
-        if not self.chunks or not self.embeddings:
+        k = max(1, top_k)
+        if not self.chunks or not self.embeddings or not query or not query.strip():
             return []
 
         query_embeddings = self.embedder.embed_texts([query])
+        if not query_embeddings:
+            return []
+
         query_vec = query_embeddings[0]
 
         scored_results = []
@@ -156,9 +169,8 @@ class VectorIndexer:
             score = self._cosine_similarity(query_vec, emb)
             scored_results.append((chunk, score))
 
-        # Sort by similarity score descending
         scored_results.sort(key=lambda x: x[1], reverse=True)
-        return scored_results[:top_k]
+        return scored_results[:k]
 
     def save(self, file_path: str):
         """Save vector store state to a local JSON file."""
@@ -167,7 +179,9 @@ class VectorIndexer:
             "embeddings": self.embeddings,
             "vocab": getattr(self.embedder, "vocab", {})
         }
-        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+        dirname = os.path.dirname(file_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
@@ -179,7 +193,7 @@ class VectorIndexer:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        self.chunks = [DocumentChunk(**item) for item in data["chunks"]]
-        self.embeddings = data["embeddings"]
+        self.chunks = [DocumentChunk(**item) for item in data.get("chunks", [])]
+        self.embeddings = data.get("embeddings", [])
         if isinstance(self.embedder, FastTFIDFEmbedder) and "vocab" in data:
             self.embedder.vocab = data["vocab"]
